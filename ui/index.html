@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PaySim ML Live Monitor</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Syne:wght@400;700;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --bg: #080c10;
+            --surface: #0e1318;
+            --surface2: #131a22;
+            --border: #1e2a35;
+            --border2: #26374a;
+            --text: #e2eaf3;
+            --muted: #56728c;
+            --accent: #00d4ff;
+            --accent-dim: rgba(0,212,255,0.08);
+            --red: #ff3d5a;
+            --red-dim: rgba(255,61,90,0.10);
+            --red-glow: rgba(255,61,90,0.25);
+            --green: #00e5a0;
+            --amber: #ffb740;
+        }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'Syne', sans-serif;
+            min-height: 100vh;
+            padding: 0;
+        }
+
+        /* Scanline overlay */
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px);
+            pointer-events: none;
+            z-index: 9999;
+        }
+
+        .topbar {
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            padding: 14px 32px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .topbar-left { display: flex; align-items: center; gap: 14px; }
+
+        .logo-badge {
+            background: var(--red-dim);
+            border: 1px solid var(--red);
+            color: var(--red);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            font-weight: 700;
+            padding: 4px 10px;
+            border-radius: 4px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .topbar h1 {
+            font-size: 17px;
+            font-weight: 800;
+            color: var(--text);
+            letter-spacing: -0.01em;
+        }
+
+        .topbar-right { display: flex; align-items: center; gap: 20px; }
+
+        .status-pill {
+            display: flex; align-items: center; gap: 7px;
+            font-size: 12px; color: var(--green);
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .pulse-dot {
+            width: 7px; height: 7px; border-radius: 50%;
+            background: var(--green);
+            animation: pulse 1.8s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.4; transform: scale(0.8); }
+        }
+
+        #clock {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+            color: var(--muted);
+        }
+
+        .main { padding: 28px 32px; max-width: 1400px; margin: 0 auto; }
+
+        /* KPI grid */
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 14px;
+            margin-bottom: 24px;
+        }
+
+        .kpi-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 18px 20px;
+            position: relative;
+            overflow: hidden;
+            transition: border-color 0.3s;
+        }
+        .kpi-card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 2px;
+            background: var(--accent);
+            opacity: 0.5;
+        }
+        .kpi-card.red-card::before { background: var(--red); opacity: 1; }
+        .kpi-card.amber-card::before { background: var(--amber); opacity: 0.8; }
+        .kpi-card.green-card::before { background: var(--green); opacity: 0.7; }
+
+        .kpi-label {
+            font-size: 10px;
+            font-weight: 700;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin-bottom: 8px;
+        }
+        .kpi-value {
+            font-size: 36px;
+            font-weight: 800;
+            line-height: 1;
+            color: var(--accent);
+        }
+        .kpi-card.red-card .kpi-value { color: var(--red); }
+        .kpi-card.amber-card .kpi-value { color: var(--amber); }
+        .kpi-card.green-card .kpi-value { color: var(--green); }
+
+        .kpi-sub {
+            margin-top: 6px;
+            font-size: 11px;
+            color: var(--muted);
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        /* Charts row */
+        .charts-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 14px;
+            margin-bottom: 24px;
+        }
+
+        .chart-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 20px;
+        }
+
+        .chart-title {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--muted);
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .chart-title-dot {
+            width: 6px; height: 6px; border-radius: 50%;
+            background: var(--accent);
+        }
+        .chart-title-dot.red { background: var(--red); }
+
+        .chart-wrap { position: relative; height: 180px; }
+
+        /* Ledger */
+        .ledger-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        .ledger-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .ledger-title {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--muted);
+            display: flex; align-items: center; gap: 8px;
+        }
+
+        #stream-count {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            color: var(--muted);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        thead tr {
+            background: var(--surface2);
+        }
+        th {
+            padding: 10px 16px;
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--muted);
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+
+        tbody tr {
+            border-bottom: 1px solid var(--border);
+            transition: background 0.15s;
+        }
+        tbody tr:last-child { border-bottom: none; }
+        tbody tr:hover { background: var(--surface2); }
+
+        tbody tr.fraud-row {
+            background: var(--red-dim);
+            animation: fraud-flash 2s infinite;
+        }
+        @keyframes fraud-flash {
+            0%, 100% { background: var(--red-dim); }
+            50% { background: rgba(255,61,90,0.05); }
+        }
+
+        td {
+            padding: 11px 16px;
+            font-size: 13px;
+            color: var(--text);
+        }
+
+        .td-mono {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            color: var(--muted);
+        }
+
+        .td-amount {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--text);
+        }
+
+        .fraud-row .td-amount { color: var(--red); }
+
+        .badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+        }
+        .badge-type {
+            background: var(--surface2);
+            color: var(--muted);
+            border: 1px solid var(--border2);
+        }
+        .badge-fraud {
+            background: rgba(255,61,90,0.15);
+            color: var(--red);
+            border: 1px solid rgba(255,61,90,0.4);
+        }
+        .badge-clear {
+            background: rgba(0,229,160,0.08);
+            color: var(--green);
+            border: 1px solid rgba(0,229,160,0.2);
+        }
+
+        /* Risk bar */
+        .risk-bar-wrap {
+            display: flex; align-items: center; gap: 8px;
+        }
+        .risk-bar {
+            flex: 1;
+            height: 4px;
+            background: var(--border);
+            border-radius: 2px;
+            overflow: hidden;
+            min-width: 60px;
+        }
+        .risk-fill {
+            height: 100%;
+            border-radius: 2px;
+            background: var(--green);
+            transition: width 0.4s ease;
+        }
+        .risk-fill.high { background: var(--red); }
+        .risk-fill.med { background: var(--amber); }
+        .risk-pct {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            color: var(--muted);
+            min-width: 32px;
+            text-align: right;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 48px 20px;
+            color: var(--muted);
+            font-size: 13px;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        /* Responsive */
+        @media (max-width: 900px) {
+            .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+            .charts-row { grid-template-columns: 1fr; }
+            .main { padding: 16px; }
+            .topbar { padding: 12px 16px; }
+        }
+    </style>
+</head>
+<body>
+
+    <header class="topbar">
+        <div class="topbar-left">
+            <span class="logo-badge">⚠ FRAUD OPS</span>
+            <h1>PaySim ML Live Monitor</h1>
+        </div>
+        <div class="topbar-right">
+            <div class="status-pill">
+                <span class="pulse-dot"></span>
+                STREAM LIVE
+            </div>
+            <span id="clock">--:--:--</span>
+        </div>
+    </header>
+
+    <main class="main">
+
+        <!-- KPI Row -->
+        <div class="kpi-grid">
+            <div class="kpi-card">
+                <div class="kpi-label">Total Transactions</div>
+                <div class="kpi-value" id="kpi-total">0</div>
+                <div class="kpi-sub">ledger entries</div>
+            </div>
+            <div class="kpi-card red-card">
+                <div class="kpi-label">Fraud Detected</div>
+                <div class="kpi-value" id="kpi-fraud">0</div>
+                <div class="kpi-sub" id="kpi-fraud-pct">— % of stream</div>
+            </div>
+            <div class="kpi-card amber-card">
+                <div class="kpi-label">Amount at Risk</div>
+                <div class="kpi-value" id="kpi-risk">$0</div>
+                <div class="kpi-sub">in flagged txns</div>
+            </div>
+            <div class="kpi-card green-card">
+                <div class="kpi-label">Cleared Safe</div>
+                <div class="kpi-value" id="kpi-safe">0</div>
+                <div class="kpi-sub" id="kpi-safe-pct">— % cleared</div>
+            </div>
+        </div>
+
+        <!-- Charts Row -->
+        <div class="charts-row">
+            <div class="chart-card">
+                <div class="chart-title">
+                    <span class="chart-title-dot red"></span>
+                    Fraud by Transaction Type
+                </div>
+                <div class="chart-wrap">
+                    <canvas id="chart-type"></canvas>
+                </div>
+            </div>
+            <div class="chart-card">
+                <div class="chart-title">
+                    <span class="chart-title-dot"></span>
+                    Transaction Volume over Sim Steps
+                </div>
+                <div class="chart-wrap">
+                    <canvas id="chart-timeline"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Ledger Table -->
+        <div class="ledger-card">
+            <div class="ledger-header">
+                <div class="ledger-title">
+                    <span class="pulse-dot" style="width:6px;height:6px;background:var(--accent);"></span>
+                    Live Transaction Ledger
+                </div>
+                <span id="stream-count">Waiting for stream...</span>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Transaction ID</th>
+                        <th>Sim Step</th>
+                        <th>Type</th>
+                        <th>Amount</th>
+                        <th>Risk Score</th>
+                        <th>ML Verdict</th>
+                    </tr>
+                </thead>
+                <tbody id="ledger-body">
+                    <tr>
+                        <td colspan="6" class="empty-state">Awaiting data/live_logs.json ...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+    </main>
+
+    <script>
+        // Clock
+        function updateClock() {
+            document.getElementById('clock').textContent = new Date().toLocaleTimeString('en-GB', { hour12: false });
+        }
+        setInterval(updateClock, 1000);
+        updateClock();
+
+        // Chart instances
+        let typeChart = null;
+        let timelineChart = null;
+
+        const chartDefaults = {
+            color: '#56728c',
+            font: { family: 'Syne' }
+        };
+
+        function buildCharts() {
+            Chart.defaults.color = '#56728c';
+            Chart.defaults.font.family = 'Syne';
+
+            const gridColor = 'rgba(30,42,53,0.8)';
+
+            // Type Bar Chart
+            const ctxType = document.getElementById('chart-type').getContext('2d');
+            typeChart = new Chart(ctxType, {
+                type: 'bar',
+                data: {
+                    labels: [],
+                    datasets: [
+                        {
+                            label: 'Fraud',
+                            data: [],
+                            backgroundColor: 'rgba(255,61,90,0.7)',
+                            borderColor: '#ff3d5a',
+                            borderWidth: 1,
+                            borderRadius: 3,
+                        },
+                        {
+                            label: 'Legit',
+                            data: [],
+                            backgroundColor: 'rgba(0,212,255,0.15)',
+                            borderColor: 'rgba(0,212,255,0.4)',
+                            borderWidth: 1,
+                            borderRadius: 3,
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            labels: { font: { size: 11 }, boxWidth: 10, padding: 12 }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { color: gridColor },
+                            ticks: { font: { size: 11 } }
+                        },
+                        y: {
+                            grid: { color: gridColor },
+                            ticks: { font: { size: 11 } }
+                        }
+                    }
+                }
+            });
+
+            // Timeline Line Chart
+            const ctxLine = document.getElementById('chart-timeline').getContext('2d');
+            timelineChart = new Chart(ctxLine, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [
+                        {
+                            label: 'Total',
+                            data: [],
+                            borderColor: '#00d4ff',
+                            backgroundColor: 'rgba(0,212,255,0.07)',
+                            fill: true,
+                            tension: 0.4,
+                            pointRadius: 0,
+                            borderWidth: 2,
+                        },
+                        {
+                            label: 'Fraud',
+                            data: [],
+                            borderColor: '#ff3d5a',
+                            backgroundColor: 'rgba(255,61,90,0.05)',
+                            fill: true,
+                            tension: 0.4,
+                            pointRadius: 0,
+                            borderWidth: 2,
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            labels: { font: { size: 11 }, boxWidth: 10, padding: 12 }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { color: gridColor },
+                            ticks: { font: { size: 11 }, maxTicksLimit: 8 }
+                        },
+                        y: {
+                            grid: { color: gridColor },
+                            ticks: { font: { size: 11 } }
+                        }
+                    }
+                }
+            });
+        }
+
+        buildCharts();
+
+        // Fake risk score based on amount + type for demo (replace with real model output if available)
+        function estimateRisk(txn) {
+            if (txn.is_fraud === 1) return 0.85 + Math.random() * 0.14;
+            if (txn.type === 'TRANSFER' && txn.amount > 100000) return 0.4 + Math.random() * 0.3;
+            if (txn.type === 'CASH_OUT' && txn.amount > 50000) return 0.2 + Math.random() * 0.3;
+            return Math.random() * 0.25;
+        }
+
+        function formatAmount(n) {
+            if (n >= 1e6) return '$' + (n / 1e6).toFixed(2) + 'M';
+            if (n >= 1e3) return '$' + (n / 1e3).toFixed(1) + 'K';
+            return '$' + n.toFixed(2);
+        }
+
+        function updateCharts(data) {
+            // --- Type chart ---
+            const types = {};
+            data.forEach(t => {
+                if (!types[t.type]) types[t.type] = { fraud: 0, legit: 0 };
+                if (t.is_fraud === 1) types[t.type].fraud++;
+                else types[t.type].legit++;
+            });
+            const typeLabels = Object.keys(types);
+            typeChart.data.labels = typeLabels;
+            typeChart.data.datasets[0].data = typeLabels.map(k => types[k].fraud);
+            typeChart.data.datasets[1].data = typeLabels.map(k => types[k].legit);
+            typeChart.update('none');
+
+            // --- Timeline chart ---
+            const steps = {};
+            data.forEach(t => {
+                const s = t.step;
+                if (!steps[s]) steps[s] = { total: 0, fraud: 0 };
+                steps[s].total++;
+                if (t.is_fraud === 1) steps[s].fraud++;
+            });
+            const sortedSteps = Object.keys(steps).map(Number).sort((a, b) => a - b);
+            timelineChart.data.labels = sortedSteps.map(s => 'H' + s);
+            timelineChart.data.datasets[0].data = sortedSteps.map(s => steps[s].total);
+            timelineChart.data.datasets[1].data = sortedSteps.map(s => steps[s].fraud);
+            timelineChart.update('none');
+        }
+
+        async function fetchStreamLogs() {
+            try {
+                const res = await fetch('data/live_logs.json?t=' + Date.now());
+                if (!res.ok) return;
+                const data = await res.json();
+                if (!Array.isArray(data) || data.length === 0) return;
+
+                const total = data.length;
+                const fraudCount = data.filter(x => x.is_fraud === 1).length;
+                const safeCount = total - fraudCount;
+                const riskAmount = data.filter(x => x.is_fraud === 1).reduce((sum, x) => sum + x.amount, 0);
+                const fraudPct = ((fraudCount / total) * 100).toFixed(1);
+                const safePct = ((safeCount / total) * 100).toFixed(1);
+
+                document.getElementById('kpi-total').textContent = total.toLocaleString();
+                document.getElementById('kpi-fraud').textContent = fraudCount.toLocaleString();
+                document.getElementById('kpi-fraud-pct').textContent = fraudPct + '% of stream';
+                document.getElementById('kpi-risk').textContent = formatAmount(riskAmount);
+                document.getElementById('kpi-safe').textContent = safeCount.toLocaleString();
+                document.getElementById('kpi-safe-pct').textContent = safePct + '% cleared';
+                document.getElementById('stream-count').textContent = total.toLocaleString() + ' records in stream';
+
+                updateCharts(data);
+
+                const tbody = document.getElementById('ledger-body');
+                tbody.innerHTML = '';
+
+                // Show latest 50
+                const display = data.slice(-50).reverse();
+                display.forEach(txn => {
+                    const risk = estimateRisk(txn);
+                    const riskPct = Math.round(risk * 100);
+                    const riskClass = riskPct >= 70 ? 'high' : riskPct >= 35 ? 'med' : '';
+
+                    const row = document.createElement('tr');
+                    if (txn.is_fraud === 1) row.classList.add('fraud-row');
+
+                    row.innerHTML = `
+                        <td class="td-mono">${txn.transaction_id || ('TXN-' + Math.floor(Math.random()*999999))}</td>
+                        <td class="td-mono">H-${txn.step}</td>
+                        <td><span class="badge badge-type">${txn.type}</span></td>
+                        <td class="td-amount">${formatAmount(txn.amount)}</td>
+                        <td>
+                            <div class="risk-bar-wrap">
+                                <div class="risk-bar">
+                                    <div class="risk-fill ${riskClass}" style="width:${riskPct}%"></div>
+                                </div>
+                                <span class="risk-pct">${riskPct}%</span>
+                            </div>
+                        </td>
+                        <td>
+                            ${txn.is_fraud === 1
+                                ? '<span class="badge badge-fraud">CRITICAL FRAUD</span>'
+                                : '<span class="badge badge-clear">CLEARED</span>'
+                            }
+                        </td>
+                    `;
+                    tbody.appendChild(row);
+                });
+
+            } catch (err) {
+                // Silently fail — stream may not be ready
+            }
+        }
+
+        setInterval(fetchStreamLogs, 500);
+        fetchStreamLogs();
+    </script>
+</body>
+</html>
