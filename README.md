@@ -193,6 +193,4 @@ consistent input shape:
 
 ---
 
-## License
 
-Add a license of your choice (e.g. MIT) before publishing.
